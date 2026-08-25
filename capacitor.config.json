@@ -1,0 +1,9 @@
+{
+  "appId": "com.jizzybx.arccomicpostgen",
+  "appName": "Arc Comic Post Generator",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": true
+  }
+}
