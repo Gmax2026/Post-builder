@@ -86,6 +86,10 @@ textarea{resize:vertical;min-height:60px}
 .fmt-btn.b{font-weight:900}
 .fmt-btn.i{font-style:italic}
 .fmt-btn.u{text-decoration:underline}
+.save-btn{background:#28a745;color:#fff;border:none;border-radius:5px;padding:5px 12px;font-size:0.72em;font-weight:bold;cursor:pointer;margin-top:6px}
+.save-btn:hover{background:#218838}
+.save-btn.saved{background:#ccc;cursor:default}
+.dirty-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#e5a300;margin-left:6px;vertical-align:middle}
 .fmt-note{font-size:0.65em;color:#aaa;margin-top:3px}
 
 .preview-panel{background:#e8e8ee;padding:16px}
@@ -328,21 +332,24 @@ function renderBuilderBlocks(){
         <button type="button" class="fmt-btn i" title="Italic" onclick="wrapSelection('${b.id}','_','_')">I</button>
         <button type="button" class="fmt-btn u" title="Underline" onclick="wrapSelection('${b.id}','++','++')">U</button>
       </div>
-      <textarea id="ta-${b.id}" oninput="updateBlock('${b.id}','content',this.value)" placeholder="Write your paragraph here... use [[Click here|https://link.com]] for inline links">${escapeHtml(b.content)}</textarea>
-      <div class="fmt-note">Select text first, then tap B/I/U. Or type manually: **bold**, _italic_, ++underline++</div>`;
+      <textarea id="ta-${b.id}" oninput="markDirty('${b.id}')" placeholder="Write your paragraph here... use [[Click here|https://link.com]] for inline links">${escapeHtml(b.content)}</textarea>
+      <div class="fmt-note">Select text first, then tap B/I/U. Or type manually: **bold**, _italic_, ++underline++</div>
+      <button type="button" class="save-btn saved" id="save-${b.id}" onclick="commitBlock('${b.id}')">✓ Saved</button>`;
     } else if(b.type==='image'){
       fields = `<label style="margin-top:0">GitHub filename (optional)</label>
-      <input type="text" value="${escapeAttr(b.ghFile||'')}" placeholder="post1.jpg" oninput="updateImageFromGh('${b.id}',this.value)"/>
+      <input type="text" id="ghfile-${b.id}" value="${escapeAttr(b.ghFile||'')}" placeholder="post1.jpg" oninput="markDirty('${b.id}')"/>
       <label>Image URL</label>
-      <input type="text" id="url-${b.id}" value="${escapeAttr(b.url)}" placeholder="https://image-url.jpg (catbox.moe etc)" oninput="updateBlock('${b.id}','url',this.value)"/>`;
+      <input type="text" id="url-${b.id}" value="${escapeAttr(b.url)}" placeholder="https://image-url.jpg (catbox.moe etc)" oninput="markDirty('${b.id}')"/>
+      <button type="button" class="save-btn saved" id="save-${b.id}" onclick="commitBlock('${b.id}')">✓ Saved</button>`;
     } else if(b.type==='ad'){
       fields = `<select onchange="updateBlock('${b.id}','size',this.value)">
         <option value="big" ${b.size==='big'?'selected':''}>Big Banner Ad</option>
         <option value="small" ${b.size==='small'?'selected':''}>Small Ad</option>
       </select>`;
     } else if(b.type==='button'){
-      fields = `<input type="text" value="${escapeAttr(b.label)}" placeholder="Button label" style="margin-bottom:6px" oninput="updateBlock('${b.id}','label',this.value)"/>
-      <input type="text" value="${escapeAttr(b.url)}" placeholder="https://destination-link.com" oninput="updateBlock('${b.id}','url',this.value)"/>`;
+      fields = `<input type="text" id="label-${b.id}" value="${escapeAttr(b.label)}" placeholder="Button label" style="margin-bottom:6px" oninput="markDirty('${b.id}')"/>
+      <input type="text" id="url-${b.id}" value="${escapeAttr(b.url)}" placeholder="https://destination-link.com" oninput="markDirty('${b.id}')"/>
+      <button type="button" class="save-btn saved" id="save-${b.id}" onclick="commitBlock('${b.id}')">✓ Saved</button>`;
     }
 
     div.innerHTML = `
@@ -359,6 +366,62 @@ function renderBuilderBlocks(){
     list.appendChild(div);
   });
 }
+
+/* Marks a block's Save button as "unsaved" the moment typing happens,
+   AND still autosaves quietly in the background as a safety net —
+   so even if you never tap Save, your work is protected either way. */
+function markDirty(id){
+  const btn = document.getElementById('save-'+id);
+  if(btn){
+    btn.textContent = '💾 Save';
+    btn.classList.remove('saved');
+  }
+  // background safety-net autosave, unchanged from before
+  commitBlock(id, true);
+}
+
+/* Reads the current DOM values for this block and writes them into the
+   data model. Called either by tapping the Save button (explicit),
+   or automatically in the background (silent) as a safety net. */
+function commitBlock(id, silent){
+  const b = blocks.find(x=>x.id===id);
+  if(!b) return;
+
+  if(b.type==='text'){
+    const ta = document.getElementById('ta-'+id);
+    if(ta) b.content = ta.value;
+  } else if(b.type==='image'){
+    const ghInput = document.getElementById('ghfile-'+id);
+    const urlInput = document.getElementById('url-'+id);
+    if(ghInput) b.ghFile = ghInput.value;
+    if(ghInput && ghInput.value.trim()){
+      const built = buildGhUrl(ghInput.value);
+      if(built){
+        b.url = built;
+        if(urlInput) urlInput.value = built;
+      }
+    } else if(urlInput){
+      b.url = urlInput.value;
+    }
+  } else if(b.type==='button'){
+    const labelInput = document.getElementById('label-'+id);
+    const urlInput = document.getElementById('url-'+id);
+    if(labelInput) b.label = labelInput.value;
+    if(urlInput) b.url = urlInput.value;
+  }
+
+  render();
+
+  if(!silent){
+    const btn = document.getElementById('save-'+id);
+    if(btn){
+      btn.textContent = '✓ Saved';
+      btn.classList.add('saved');
+    }
+    showToast('✅ Block saved');
+  }
+}
+
 
 /* Only updates the data model + preview — never touches builder DOM,
    so the field you're typing in is never re-created or cleared. */
